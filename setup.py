@@ -15,7 +15,7 @@ setup(
     description='Modelling corporate and project finances',
     long_description=readme,
     author='Tanel Joon',
-    author_email='taneljoon@gmail.com',
+    author_email='tanel.joon@energia.ee',
     url='https://github.com/taneljoon/corp_fin',
     license=license,
     packages=find_packages(exclude=('tests', 'docs'))
