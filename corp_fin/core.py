@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import pandas
 import sys
 units = 100
 unit_price = 20
@@ -57,7 +58,7 @@ class Statments(object):
     def calc(self, op, inv, macro):
         #self.cf.calc(op, inv, macro)
         self.bs.calc(op, inv, macro)
-        #self.pl.calc(op, inv, macro)
+        self.pl.calc(op, inv, macro)
         #self.se.calc(op, inv, macro)
      
     def get_latest(self):
@@ -87,7 +88,15 @@ class CF(object):
 
 class PL(object):
     def __init__(self):
+        self.revenues = []
+        self.expenses = []
         self.profit = []
+    
+    def calc(self, op, macro):
+        self.revenues.append()
+        self.expenses.append()
+        self.profit.append()
+        
         
     #def calc(
 

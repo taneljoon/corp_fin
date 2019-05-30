@@ -1,0 +1,24 @@
+# main buisiness operations
+
+functions of
+- produce stuff
+- sell stuff
+- get money from clients
+- pay liabilities to suppliers
+
+- invest money 
+- 
+
+
+simple 
+- revenues = sell stuff
+- expenses = cost of good sold + overhead 
+- profit = revenue - expenses
+
+valuation
+- P/E
+- DCF
+- P/R
+- Previous payments
+
+valuation
