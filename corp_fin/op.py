@@ -240,7 +240,9 @@ class Valuation(object):
         return EV
     
     def PE_EV(self, business, multiplier):
-        
+        """
+        Calculate EV based on last profit.
+        """
         try:
             profit = business.fin.pl.df['Profit'].values[-1]
             time_step = business.fin.bs.df['Datetime'].values
