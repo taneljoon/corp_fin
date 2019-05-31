@@ -31,13 +31,12 @@ class Macro(object):
 class Business(object):
 
     instances = []
-    def __init__(self, name, capacity, timeline):
+    def __init__(self, name, capacity, timeline, assets = 0, liabilities = 0):
         self.__class__.instances.append(weakref.proxy(self))
         self.name = name
         self.capacity = capacity
         self.op = Operations()
-        self.fin = Finance(timeline)
-        self.is_copy = False
+        self.fin = Finance(timeline, assets, liabilities)
         
     def get_free_cash_balance(self):
         
@@ -58,14 +57,13 @@ class Operations(object):
         self.df = self.df.append(temp, ignore_index = True)
         return temp
 
-
-
 class Finance(object):
-    def __init__(self, timeline):
-        self.bs = BS(timeline)
-        self.se = SE(timeline)
+    def __init__(self, timeline, assets = 0, liabilities = 0):
+        self.bs = BS(timeline, assets, liabilities)
+        self.se = SE(timeline, assets, liabilities)
         self.cf = CF()
         self.pl = PL()
+        
     def calc(self, timeline, revenue, cost, dividends):
         self.bs.calc(timeline, revenue, cost, dividends)
         temp = self.pl.calc(timeline, revenue, cost)
@@ -76,20 +74,20 @@ class BS(object):
     def __init__(self, timeline, assets = 0, liabilities = 0):
         titles = ['Datetime', 'Assets', 'Liabilities','Equity']
         self.df = pd.DataFrame(columns = titles)
-        temp = {}
         
+        temp = {}
         temp['Datetime'] = timeline
         temp['Assets'] = assets
         temp['Liabilities'] = liabilities
         temp['Equity'] = assets - liabilities
         self.df = self.df.append(temp, ignore_index = True)
 
-    def calc(self, timeline, revenue, cost, dividends):
+    def calc(self, timeline, revenue, cost, dividends, investments):
         df_previous = self.df.shape[0]-1
         
         temp = {}
         temp['Datetime'] = timeline
-        temp['Assets'] = self.df['Assets'][df_previous] + revenue - cost - dividends
+        temp['Assets'] = self.df['Assets'][df_previous] + revenue - cost - dividends + investments
         temp['Liabilities'] = self.df['Liabilities'][df_previous]
         temp['Equity'] = temp['Assets'] - temp['Liabilities']
         self.df = self.df.append(temp, ignore_index = True)
@@ -98,7 +96,6 @@ class BS(object):
 class PL(object):
     def __init__(self):
         titles = ['Datetime','Revenues', 'Expenses', 'Profit']
-        self.titles = titles
         self.df = pd.DataFrame(columns = titles)
 
     def calc(self, timeline, revenue, cost):
@@ -111,21 +108,23 @@ class PL(object):
         return temp
 
 class CF(object):
-    def __init__(self):
-        titles = ['Datetime','Operations','Dividends','Cash_BoP', 'Cash_EoP', 'Net_CF']
-        self.titles = titles
+    def __init__(self, assets = 0, liabilities = 0):
+        titles = (['Datetime','Operations','Investements',
+        'Dividends','Cash_BoP', 'Cash_EoP', 'Net_CF'])
         self.df = pd.DataFrame(columns = titles)
+        self.cash_init = assets - liabilities
 
-    def calc(self, timeline, revenue, cost, dividends, cash_bop =0):
+    def calc(self, timeline, revenue, cost, dividends, investments):
         df_previous = self.df.shape[0]-1
         temp = {}
         try:
             temp_cash_bop = self.df['Cash_EoP'][df_previous]
         except:
-            temp_cash_bop = cash_bop
+            temp_cash_bop = self.cash_init
 
         temp['Datetime'] = timeline
         temp['Operations'] = revenue - cost
+        temp['Investments'] = investments
         temp['Dividends'] = -dividends
         temp['Cash_BoP'] = temp_cash_bop
         temp['Net_CF'] = revenue - cost - dividends
@@ -134,24 +133,31 @@ class CF(object):
         return temp
 
 class SE(object):
-    def __init__(self, timeline):
+    def __init__(self, timeline, assets = 0, liabilities = 0):
         titles = ['Datetime','Balance_BoP','Profit','Dividends','Balance_EoP']
-        self.titles = titles
         self.df = pd.DataFrame(columns = titles)
-
-    def calc(self, timeline, profit, dividends, balance_bop = 0):
-        df_previous = self.df.shape[0]-1
+        
         temp = {}
-        try:
-            temp_balance = self.df['Balance_EoP'][df_previous]
-        except:
-            temp_balance = balance_bop
-            
+        temp['Datetime'] = timeline
+        temp['Balance_BoP'] = 0
+        temp['Investments'] = 0
+        temp['Profit'] = 0
+        temp['Dividends'] = 0
+        temp['Balance_EoP'] = assets - liabilities
+        self.df = self.df.append(temp, ignore_index = True)
+
+    def calc(self, timeline, profit, dividends, investments):
+        
+        df_previous = self.df.shape[0]-1
+        temp_balance = self.df['Balance_EoP'][df_previous]
+        
+        temp = {}     
         temp['Datetime'] = timeline
         temp['Balance_BoP'] = temp_balance
+        temp['Investements'] = investments
         temp['Profit'] = profit
         temp['Dividends'] = -dividends
-        temp['Balance_EoP'] = temp_balance + profit - dividends
+        temp['Balance_EoP'] = temp_balance + profit - dividends + investments
         self.df = self.df.append(temp, ignore_index = True)
         return temp
 
@@ -201,7 +207,9 @@ class GlobalSim(Simulation):
 
 class LocalSim(Simulation):        
     def single_calc(self, business, timeline, macro, years = 5):
-        
+        """
+        Calculate financial projection.
+        """
         end_period = timeline + datetime.timedelta(years*365.25)
         
         while timeline < end_period:
@@ -220,6 +228,12 @@ class Valuation(object):
         print('')
         
     def DCF_EV(self, business, current_timeline, takeover_date, discount_rate):
+        
+        """
+        Copy the buisiness and call fin-projection.
+        Using DCF get NPV of dividends and net cash flow.
+        
+        """
         business_copy = copy.deepcopy(business)
         macro_copy = copy.deepcopy(macro)
         
@@ -228,9 +242,13 @@ class Valuation(object):
         # take away already previous periods since we are at current time
         business_copy.fin.cf.df = business_copy.fin.cf.df[business_copy.fin.cf.df['Datetime']>takeover_date]
         
-        net_cf = business_copy.fin.cf.df['Net_CF'].values
+        #oper = business_copy.fin.cf.df['Operations'].values
+        #net_cf = business_copy.fin.cf.df['Net_CF'].values
+        
         dividends = business_copy.fin.cf.df['Dividends'].values
-       
+        print(oper)
+        print(net_cf)
+        print(dividends)
         FCFt = -dividends[-1] + net_cf[-1]
         terminal_value = max(0, FCFt / discount_rate)
         net_cf[-1] = net_cf[-1] + terminal_value
@@ -242,33 +260,38 @@ class Valuation(object):
     def PE_EV(self, business, multiplier):
         """
         Calculate EV based on last profit.
+        Datetime difference gives answer in nanoseconds, therefore convert to dayss.
         """
         try:
             profit = business.fin.pl.df['Profit'].values[-1]
             time_step = business.fin.bs.df['Datetime'].values
-        
             time_step_days = float(time_step[-1] - time_step[-2])/1e9/(60*60*24)
             EV = profit * multiplier * 365.25/time_step_days
         except:
             EV = None
         
         return EV
-        
+
+
+class Corporation(object):
+    def __init__(self, name, assets, liabilities):
+        print('xxx')
 
 timeline = datetime.datetime(2019,1,1)
 project1 = Business('Buiseness_1', 100, timeline)
-project2 = Business('Buiseness_2', 200, timeline)
+project3 = Business('Buiseness_2', 200, timeline)
+project2 = Business('Buiseness_2', 200, timeline, assets = 209000, liabilities = 100000)
 #sim = Simulation()
 macro = Macro(10)
 
 value = Valuation()
 
 sim = GlobalSim(timeline, macro)
-sim.prog_time()
-sim.prog_time()
-sim.prog_time()
+#sim.prog_time()
+#sim.prog_time()
+#sim.prog_time()
 
-DCF_EV = value.DCF_EV(project2, sim.timeline, sim.timeline + datetime.timedelta(60), 0.1/12)
+DCF_EV = value.DCF_EV(project2, sim.timeline, sim.timeline, 0.1/12)
 PE_EV = value.PE_EV(project2, 10)
 print(DCF_EV)
 print(PE_EV)
