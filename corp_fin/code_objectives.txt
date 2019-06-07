@@ -22,3 +22,10 @@ valuation
 - Previous payments
 
 valuation
+
+
+objects
+
+- simple, but backbone should be upgradeable to real thing
+- what I want in the end
+-- 

@@ -64,11 +64,11 @@ class Finance(object):
         self.cf = CF()
         self.pl = PL()
         
-    def calc(self, timeline, revenue, cost, dividends):
-        self.bs.calc(timeline, revenue, cost, dividends)
+    def calc(self, timeline, revenue, cost, dividends, investments):
+        self.bs.calc(timeline, revenue, cost, dividends, investments)
         temp = self.pl.calc(timeline, revenue, cost)
-        self.cf.calc(timeline, revenue, cost, dividends)
-        self.se.calc(timeline, dividends, temp['Profit'])
+        self.cf.calc(timeline, revenue, cost, dividends, investments)
+        self.se.calc(timeline, dividends, temp['Profit'], investments)
         
 class BS(object):
     def __init__(self, timeline, assets = 0, liabilities = 0):
@@ -146,7 +146,7 @@ class SE(object):
         temp['Balance_EoP'] = assets - liabilities
         self.df = self.df.append(temp, ignore_index = True)
 
-    def calc(self, timeline, profit, dividends, investments):
+    def calc(self, timeline, dividends, profit, investments):
         
         df_previous = self.df.shape[0]-1
         temp_balance = self.df['Balance_EoP'][df_previous]
@@ -216,12 +216,13 @@ class LocalSim(Simulation):
             delta = self.time_step_datetime(timeline)
             timeline = timeline + delta
             macro_results = macro.calc(timeline, delta)
-        
+            
+            investments = 0
             op_results = business.op.calc(timeline, delta, business)
             revenue = op_results['Units'] * macro_results['Price']
             cost = op_results['Units'] * macro_results['Cost']
             dividends = business.get_free_cash_balance()
-            business.fin.calc(timeline, revenue, cost, dividends)
+            business.fin.calc(timeline, revenue, cost, dividends, investments)
         
 class Valuation(object):
     def __init__(self):
@@ -242,13 +243,11 @@ class Valuation(object):
         # take away already previous periods since we are at current time
         business_copy.fin.cf.df = business_copy.fin.cf.df[business_copy.fin.cf.df['Datetime']>takeover_date]
         
-        #oper = business_copy.fin.cf.df['Operations'].values
-        #net_cf = business_copy.fin.cf.df['Net_CF'].values
+        
+        net_cf = business_copy.fin.cf.df['Net_CF'].values
         
         dividends = business_copy.fin.cf.df['Dividends'].values
-        print(oper)
-        print(net_cf)
-        print(dividends)
+        
         FCFt = -dividends[-1] + net_cf[-1]
         terminal_value = max(0, FCFt / discount_rate)
         net_cf[-1] = net_cf[-1] + terminal_value
@@ -257,7 +256,7 @@ class Valuation(object):
         
         return EV
     
-    def PE_EV(self, business, multiplier):
+    def PE_EV(self, business, multiplier, current_timeline):
         """
         Calculate EV based on last profit.
         Datetime difference gives answer in nanoseconds, therefore convert to dayss.
@@ -268,7 +267,17 @@ class Valuation(object):
             time_step_days = float(time_step[-1] - time_step[-2])/1e9/(60*60*24)
             EV = profit * multiplier * 365.25/time_step_days
         except:
-            EV = None
+            local_sim = LocalSim()
+            
+            business_copy = copy.deepcopy(business)
+            macro_copy = copy.deepcopy(macro)
+            
+            local_sim.single_calc(business_copy, current_timeline, macro_copy, years = 1)
+            
+            profit = business_copy.fin.pl.df['Profit'].values[-1]
+            time_step = business_copy.fin.bs.df['Datetime'].values
+            time_step_days = float(time_step[-1] - time_step[-2])/1e9/(60*60*24)
+            EV = profit * multiplier * 365.25/time_step_days
         
         return EV
 
@@ -292,7 +301,7 @@ sim = GlobalSim(timeline, macro)
 #sim.prog_time()
 
 DCF_EV = value.DCF_EV(project2, sim.timeline, sim.timeline, 0.1/12)
-PE_EV = value.PE_EV(project2, 10)
+PE_EV = value.PE_EV(project2, 10, sim.timeline)
 print(DCF_EV)
 print(PE_EV)
 
