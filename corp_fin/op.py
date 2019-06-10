@@ -34,6 +34,7 @@ class Business(object):
     def __init__(self, name, capacity, timeline, assets = 0, liabilities = 0):
         self.__class__.instances.append(weakref.proxy(self))
         self.name = name
+        self.type = 'Business'
         self.capacity = capacity
         self.op = Operations()
         self.fin = Finance(timeline, assets, liabilities)
@@ -41,6 +42,9 @@ class Business(object):
     def get_free_cash_balance(self):
         
         return self.fin.bs.df['Assets'].values[-1]
+        
+    def get_business_investments(self):
+        return 0
 
 class Operations(object):
     def __init__(self):
@@ -109,7 +113,7 @@ class PL(object):
 
 class CF(object):
     def __init__(self, assets = 0, liabilities = 0):
-        titles = (['Datetime','Operations','Investements',
+        titles = (['Datetime','Operations','Investments',
         'Dividends','Cash_BoP', 'Cash_EoP', 'Net_CF'])
         self.df = pd.DataFrame(columns = titles)
         self.cash_init = assets - liabilities
@@ -154,7 +158,7 @@ class SE(object):
         temp = {}     
         temp['Datetime'] = timeline
         temp['Balance_BoP'] = temp_balance
-        temp['Investements'] = investments
+        temp['Investments'] = investments
         temp['Profit'] = profit
         temp['Dividends'] = -dividends
         temp['Balance_EoP'] = temp_balance + profit - dividends + investments
@@ -194,19 +198,40 @@ class GlobalSim(Simulation):
         self.timeline = self.timeline + delta
         macro_results = macro.calc(self.timeline, delta)
         
-        for business in Business.instances:
+        for business in Business.instances:            
+            self.calc(business, self.timeline, delta, macro_results)
+
+        for corporation in Corporation.instances:
             
-            self.calc(business, self.timeline, delta, macro_results)            
-            
+            self.calc_corp(corporation, self.timeline, delta, macro_results)
+
     def calc(self, business, timeline, delta, macro_results):
         op_results = business.op.calc(timeline, delta, business)
         revenue = op_results['Units'] * macro_results['Price']
         cost = op_results['Units'] * macro_results['Cost']
         dividends = business.get_free_cash_balance()
-        business.fin.calc(timeline, revenue, cost, dividends)
+        investments = business.get_business_investments()
+        business.fin.calc(timeline, revenue, cost, dividends, investments)
+    
+    def calc_corp(self, corporation, timeline, delta, macro_results):
+        
+        revenue = 0
+        cost = 0
+        dividends = 0
+        investments = 0
+        
+        for business in corporation.businesses:
+
+            revenue = revenue + business.fin.pl.df['Revenues'].values[-1]
+            cost = cost + business.fin.pl.df['Expenses'].values[-1]
+            dividends = dividends + business.fin.cf.df['Dividends'].values[-1]
+            investments = investments + business.fin.cf.df['Investments'].values[-1]
+        # xxx note test the investments and dividends positive/negative
+        corporation.fin.calc(timeline, revenue, -cost, dividends, investments)
+            
 
 class LocalSim(Simulation):        
-    def single_calc(self, business, timeline, macro, years = 5):
+    def single_calc(self, entity, timeline, macro, years = 5):
         """
         Calculate financial projection.
         """
@@ -218,22 +243,31 @@ class LocalSim(Simulation):
             macro_results = macro.calc(timeline, delta)
             
             investments = 0
-            op_results = business.op.calc(timeline, delta, business)
+            op_results = entity.op.calc(timeline, delta, entity)
             revenue = op_results['Units'] * macro_results['Price']
             cost = op_results['Units'] * macro_results['Cost']
-            dividends = business.get_free_cash_balance()
-            business.fin.calc(timeline, revenue, cost, dividends, investments)
-        
+            
+            if entity.type == 'Business':
+                dividends = entity.get_free_cash_balance()
+            elif entity.type == 'Corporation':
+                dividends = 0
+            
+            entity.fin.calc(timeline, revenue, cost, dividends, investments)
+    
+    def single_corp_calc(self):
+        """
+        xxx finish this corp sim
+        """
+        print('xxx')
+    
 class Valuation(object):
     def __init__(self):
         print('')
         
     def DCF_EV(self, business, current_timeline, takeover_date, discount_rate):
-        
         """
-        Copy the buisiness and call fin-projection.
+        Copy the business and call fin-projection.
         Using DCF get NPV of dividends and net cash flow.
-        
         """
         business_copy = copy.deepcopy(business)
         macro_copy = copy.deepcopy(macro)
@@ -242,10 +276,8 @@ class Valuation(object):
         local_sim.single_calc(business_copy, current_timeline, macro_copy)
         # take away already previous periods since we are at current time
         business_copy.fin.cf.df = business_copy.fin.cf.df[business_copy.fin.cf.df['Datetime']>takeover_date]
-        
-        
+                
         net_cf = business_copy.fin.cf.df['Net_CF'].values
-        
         dividends = business_copy.fin.cf.df['Dividends'].values
         
         FCFt = -dividends[-1] + net_cf[-1]
@@ -283,32 +315,51 @@ class Valuation(object):
 
 
 class Corporation(object):
-    def __init__(self, name, assets, liabilities):
-        print('xxx')
+    instances = []
+    def __init__(self, name, timeline, businesses=[], assets = 0, liabilities = 0):
+        self.__class__.instances.append(weakref.proxy(self))
+        self.name = name
+        self.type = "Corporation"
+        self.businesses = businesses
+        self.fin = Finance(timeline, assets, liabilities)                 
+    
+    def get_free_cash_balance(self):
+        return self.fin.bs.df['Assets'].values[-1]
+
+
 
 timeline = datetime.datetime(2019,1,1)
-project1 = Business('Buiseness_1', 100, timeline)
-project3 = Business('Buiseness_2', 200, timeline)
-project2 = Business('Buiseness_2', 200, timeline, assets = 209000, liabilities = 100000)
+project1 = Business('Business_1', 100, timeline)
+project3 = Business('Business_2', 200, timeline)
+project2 = Business('Business_2', 200, timeline, assets = 209000, liabilities = 100000)
+
+corp1 = Corporation('Double_Corp', timeline, [project1, project2], assets = 2000000)
 #sim = Simulation()
 macro = Macro(10)
 
 value = Valuation()
 
 sim = GlobalSim(timeline, macro)
-#sim.prog_time()
-#sim.prog_time()
-#sim.prog_time()
+
 
 DCF_EV = value.DCF_EV(project2, sim.timeline, sim.timeline, 0.1/12)
 PE_EV = value.PE_EV(project2, 10, sim.timeline)
 print(DCF_EV)
 print(PE_EV)
 
+sim.prog_time()
+sim.prog_time()
+sim.prog_time()
+sim.prog_time()
+
+print(project1.fin.pl.df)
+print(project1.fin.cf.df)
 print(project2.fin.pl.df)
 print(project2.fin.cf.df)
-print(project2.op.df)
-print(timeline)
+print(corp1.fin.pl.df)
+print(corp1.fin.cf.df)
+print(corp1.fin.bs.df)
+print(corp1.fin.se.df)
 
 """
 for ii in range(0,10):
