@@ -8,6 +8,13 @@ import weakref
 import calendar
 import copy
 
+# import libraries from disc
+import sys
+sys.path.insert(0,'C:/Users/tanel.joon/OneDrive - Energia.ee/Documents_OneDrive/Python/for_import')
+
+import folium
+#sys.exit()
+
 # all classes that are timeline driven give pandas as out
 
 class Macro(object):
@@ -87,7 +94,7 @@ class Finance(object):
     def calc(self, timeline, revenue, cost, dividends, investments):
         self.bs.calc(timeline, revenue, cost, dividends, investments, self.investments)
         temp = self.pl.calc(timeline, revenue, cost)
-        print(self.investments)
+        
         self.cf.calc(timeline, revenue, cost, dividends, investments, self.investments)
         self.se.calc(timeline, dividends, temp['Profit'], investments)
         self.investments = investments
@@ -241,7 +248,7 @@ class GlobalSim(Simulation):
         """
         delta = self.time_step_datetime(self.timeline)
         self.timeline = self.timeline + delta
-        macro_results = macro.calc(self.timeline, delta)
+        macro_results = self.macro.calc(self.timeline, delta)
         
         for business in Business.instances:            
             self.calc(business, self.timeline, delta, macro_results)
@@ -272,7 +279,8 @@ class GlobalSim(Simulation):
             dividends = dividends + business.fin.cf.df['Dividends'].values[-1]
             investments = investments + business.fin.cf.df['Investments'].values[-1]
         
-        temp = self.events.create_business(corporation, macro_results, sim.timeline, self.time_step_opt)
+        temp = self.events.create_business(corporation, self.macro, 
+            macro_results, self.timeline, self.time_step_opt)
         investments = temp + investments
         corporation.fin.calc(timeline, revenue, -cost, dividends, -investments)
 
@@ -299,10 +307,6 @@ class LocalSim(Simulation):
                 dividends = 0
             
             entity.fin.calc(timeline, revenue, cost, dividends, investments)
-        print(entity.fin.bs.df)
-        print(entity.fin.cf.df)
-        print(entity.fin.se.df)
-        print(entity.fin.pl.df)
         
     def single_corp_calc(self):
         """
@@ -314,7 +318,7 @@ class Valuation(object):
     def __init__(self):
         print('')
         
-    def DCF_EV(self, business, current_timeline, takeover_date, discount_rate):
+    def DCF_EV(self, business, macro, current_timeline, takeover_date, discount_rate):
         """
         Copy the business and call fin-projection.
         Using DCF get NPV of dividends and net cash flow.
@@ -338,7 +342,7 @@ class Valuation(object):
         
         return EV
     
-    def PE_EV(self, business, multiplier, current_timeline):
+    def PE_EV(self, business, macro, multiplier, current_timeline):
         """
         Calculate EV based on last profit.
         Datetime difference gives answer in nanoseconds, therefore convert to dayss.
@@ -363,7 +367,8 @@ class Valuation(object):
         
         return EV
         
-    def IRR_business(self, business, current_timeline, takeover_date, investment, discount_rate, time_step_opt):
+    def IRR_business(self, business, macro, current_timeline, takeover_date,
+        investment, discount_rate, time_step_opt):
         
         business_copy = copy.deepcopy(business)
         macro_copy = copy.deepcopy(macro)
@@ -399,7 +404,9 @@ class Valuation(object):
 
 class Corporation(object):
     instances = []
-    def __init__(self, name, timeline, businesses=[], fixed_assets = 0, liabilities = 0, human = False, estimate = False):
+    def __init__(self, name, timeline, businesses=[], fixed_assets = 0,
+        liabilities = 0, human = False, estimate = False):
+        
         if estimate == False:
             self.__class__.instances.append(weakref.proxy(self))
         self.name = name
@@ -430,16 +437,16 @@ class Events(object):
     def __init__(self):
         print('xxx')
         
-    def create_business(self, corporation, macro_results, timeline, time_step_opt): 
+    def create_business(self, corporation, macro, macro_results, timeline, time_step_opt): 
             # add businesses
         name = 'Business_' + str(len(Business.instances))
         capacity  = 100
         
         estimate = Business('Estimate', 100, timeline, investments = macro_results['CAPEX'] * capacity, estimate = True)
         value = Valuation()
-        DCF_EV = value.DCF_EV(estimate, timeline, timeline, 0.1/12)
-        PE_EV = value.PE_EV(estimate, 10, timeline)
-        IRR_yearly = value.IRR_business(estimate, timeline, timeline, macro_results['CAPEX'] * capacity, 0.1/12, time_step_opt)
+        DCF_EV = value.DCF_EV(estimate, macro, timeline, timeline, 0.1/12)
+        PE_EV = value.PE_EV(estimate, macro, 10, timeline)
+        IRR_yearly = value.IRR_business(estimate, macro, timeline, timeline, macro_results['CAPEX'] * capacity, 0.1/12, time_step_opt)
         del estimate        
        
         if corporation.human == True:
@@ -458,55 +465,50 @@ class Events(object):
             investments = investments + macro_results['CAPEX'] * capacity
         return investments       
 
+
 class RandomPopups(object):
     def __init__(self):
         self.capacity_rand = random.random()
         # xxx
 
-timeline = datetime.datetime(2019,1,1)
-project1 = Business('Business_1', 100, timeline)
-project2 = Business('Business_2', 200, timeline)
-project3 = Business('Business_3', 200, timeline, fixed_assets = 209000)
-project4 = Business('Business_4', 200, timeline, fixed_assets = 209000)
+def test_functionA():
 
-corp1 = Corporation('Double_Corp', timeline, [project1, project2], fixed_assets = 2000000, human = True)
-corp2 = Corporation('Double_Corp', timeline, [project3, project4], fixed_assets = 2000000)
-sim = Simulation()
-macro = Macro(10)
+    timeline = datetime.datetime(2019,1,1)
+    project1 = Business('Business_1', 100, timeline)
+    project2 = Business('Business_2', 200, timeline)
+    project3 = Business('Business_3', 200, timeline, fixed_assets = 209000)
+    project4 = Business('Business_4', 200, timeline, fixed_assets = 209000)
 
-value = Valuation()
-events = Events()
-sim = GlobalSim(timeline, macro, events, time_step_opt = 'month')
+    corp1 = Corporation('Double_Corp', timeline, [project1, project2],
+        fixed_assets = 2000000, human = True)
+    corp2 = Corporation('Double_Corp', timeline, [project3, project4], 
+        fixed_assets = 2000000)
+    
+    print('xxx')
+
+    macro = Macro(10)
+    sim = GlobalSim(timeline, macro, events, time_step_opt = 'month')
+
+    sim.prog_time()
+    sim.prog_time()
+    sim.prog_time()
+    sim.prog_time()
+
+    print(project1.fin.bs.df)
+
+if __name__ == '__main__':
+    print('main')
+    test_functionA()
+    
+    
 
 """
+
 DCF_EV = value.DCF_EV(project2, sim.timeline, sim.timeline, 0.1/12)
 PE_EV = value.PE_EV(project2, 10, sim.timeline)
 print(DCF_EV)
 print(PE_EV)
-"""
-sim.prog_time()
-sim.prog_time()
-sim.prog_time()
-sim.prog_time()
 
-print(project1.fin.bs.df)
-
-"""
-print(corp1.fin.pl.df)
-print(corp1.fin.bs.df)
-print(corp1.fin.cf.df)
-print(corp1.fin.se.df)
-
-for ii in corp1.businesses:
-    print(ii.name)
-    print(ii.fin.bs.df)
-    print(ii.fin.cf.df)
-    print(ii.fin.pl.df)
-    print(ii.fin.se.df)
-
-"""
-
-"""
 for ii in range(0,10):
 
     # get timestep
@@ -524,12 +526,4 @@ for ii in range(0,10):
         dividends = business.get_free_cash_balance()
         business.fin.calc(timeline, revenue, cost, dividends)
       
-        
-print(macro.df)
-print(project1.op.df)
-print(project1.fin.bs.df)
-print(project1.fin.pl.df)
-print(project1.fin.se.df)
-print(project1.fin.cf.df)
-print(project1.op.df)
 """
