@@ -1,5 +1,12 @@
 # main run file
 
+
+"""
+# notes
+
+# corp fin is kinda crappy - equity rasing or starting subsidiaries doesnt work
+"""
+
 # import libraries
 import pandas as pd
 import numpy as np
@@ -40,13 +47,14 @@ class Macro(object):
 class Business(object):
 
     instances = []
-    def __init__(self, name, capacity, timeline, current_assets = 0, fixed_assets = 0, liabilities = 0, investments=0,estimate = False):
+    def __init__(self, name, capacity, timeline, current_assets=0, 
+        fixed_assets=0, liabilities=0, investments=0, estimate = False):
+        
         if estimate == False:
             self.__class__.instances.append(weakref.proxy(self))
         self.name = name
         self.type = 'Business'
         self.capacity = capacity
-
         self.op = Operations()
         self.fin = Finance(timeline, current_assets, fixed_assets, liabilities, investments)
         
@@ -59,8 +67,7 @@ class Business(object):
         except:
             temp_balance = 0
         
-        return temp_balance
-        #return self.fin.bs.df['Current_assets'].values[-1]
+        return max(temp_balance,0)
         
     def get_business_investments(self):
         return 0
@@ -81,32 +88,32 @@ class Operations(object):
         return temp
 
 class Finance(object):
-    def __init__(self, timeline, current_assets = 0, fixed_assets = 0, liabilities = 0, investments = 0):
-        self.bs = BS(timeline, current_assets, fixed_assets, liabilities)
-        self.se = SE(timeline, current_assets, fixed_assets, liabilities)
-        self.cf = CF()
+    def __init__(self, timeline, current_assets=0, fixed_assets=0, 
+        liabilities=0, investments=0):
+        self.bs = BS(timeline, current_assets, fixed_assets, liabilities, investments)
+        self.se = SE(timeline, current_assets, fixed_assets, liabilities, investments)
+        self.cf = CF(investments)
         self.pl = PL()
         # investment goes like this - cash to current assets and equity
         # - then cash to fixed assets and cash flow negative
-        
         self.investments = investments
         
     def calc(self, timeline, revenue, cost, dividends, investments):
         self.bs.calc(timeline, revenue, cost, dividends, investments, self.investments)
         temp = self.pl.calc(timeline, revenue, cost)
-        
         self.cf.calc(timeline, revenue, cost, dividends, investments, self.investments)
         self.se.calc(timeline, dividends, temp['Profit'], investments)
-        self.investments = investments
+        self.investments = 0
         
 class BS(object):
-    def __init__(self, timeline, current_assets = 0, fixed_assets = 0, liabilities = 0):
+    def __init__(self, timeline, current_assets = 0, fixed_assets=0, 
+        liabilities=0, investments=0):
         titles = ['Datetime', 'Current_assets', 'Fixed_assets', 'Total_assets', 'Liabilities','Equity']
         self.df = pd.DataFrame(columns = titles)
         
         temp = {}
         temp['Datetime'] = timeline
-        temp['Current_assets'] = current_assets
+        temp['Current_assets'] = current_assets + investments
         temp['Fixed_assets'] = fixed_assets
         temp['Total_assets'] = temp['Fixed_assets'] + temp['Current_assets'] 
         temp['Liabilities'] = liabilities
@@ -141,15 +148,16 @@ class PL(object):
         temp['Expenses'] = -cost
         temp['Profit'] = revenue - cost
         self.df = self.df.append(temp, ignore_index = True)
+        
         return temp
 
 class CF(object):
-    def __init__(self, current_assets = 0, fixed_assets = 0, liabilities = 0):
+    def __init__(self, investments=0):
         titles = (['Datetime','Cash_BoP','Operations','Equity_raised',
         'Investments','Dividends', 'Cash_EoP','Net_CF'])
         self.df = pd.DataFrame(columns = titles)
         #self.cash_init = fixed_assets - liabilities
-        self.cash_init = 0
+        self.cash_init = investments
 
     def calc(self, timeline, revenue, cost, dividends, investments, current_to_fixed):
         df_previous = self.df.shape[0]-1
@@ -166,22 +174,23 @@ class CF(object):
         temp['Investments'] = -current_to_fixed
         temp['Dividends'] = -dividends
         temp['Net_CF'] = revenue - cost - dividends
-        temp['Cash_EoP'] = temp_cash_bop + revenue - cost - dividends
+        temp['Cash_EoP'] = temp_cash_bop + revenue - cost - dividends - current_to_fixed
         self.df = self.df.append(temp, ignore_index = True)
         return temp
 
 class SE(object):
-    def __init__(self, timeline, current_assets = 0, fixed_assets = 0, liabilities = 0):
+    def __init__(self, timeline, current_assets=0, fixed_assets=0, 
+        liabilities=0, investments=0):
         titles = ['Datetime','Balance_BoP','Equity_raised','Profit','Dividends','Balance_EoP']
         self.df = pd.DataFrame(columns = titles)
         
         temp = {}
         temp['Datetime'] = timeline
         temp['Balance_BoP'] = 0 #fixed_assets + current_assets
-        temp['Equity_raised'] = 0 #fixed_assets + current_assets
+        temp['Equity_raised'] = investments #fixed_assets + current_assets
         temp['Profit'] = 0
         temp['Dividends'] = 0
-        temp['Balance_EoP'] = fixed_assets - liabilities
+        temp['Balance_EoP'] = investments
         self.df = self.df.append(temp, ignore_index = True)
 
     def calc(self, timeline, dividends, profit, equity_raised):
@@ -262,7 +271,6 @@ class GlobalSim(Simulation):
         cost = op_results['Units'] * macro_results['Cost']
         
         dividends = business.get_dividends()
-        
         investments = business.get_business_investments()
         business.fin.calc(timeline, revenue, cost, dividends, investments)
     
@@ -296,7 +304,7 @@ class LocalSim(Simulation):
             timeline = timeline + delta
             macro_results = macro.calc(timeline, delta)
             
-            investments = 0 # macro_results['CAPEX']
+            investments = 0
             op_results = entity.op.calc(timeline, delta, entity)
             revenue = op_results['Units'] * macro_results['Price']
             cost = op_results['Units'] * macro_results['Cost']
@@ -306,7 +314,7 @@ class LocalSim(Simulation):
             elif entity.type == 'Corporation':
                 dividends = 0
             
-            entity.fin.calc(timeline, revenue, cost, dividends, investments)
+            entity.fin.calc(timeline, revenue, cost, dividends, 0)
         
     def single_corp_calc(self):
         """
@@ -390,6 +398,19 @@ class Valuation(object):
         temp_list = investments - dividends
         temp_list[-1] = temp_list[-1] + terminal_value 
         
+        
+        print(business_copy.fin.bs.df)
+        print(business_copy.fin.se.df)
+        
+        print('xxx')
+        print('dividends')
+        print(dividends)
+        
+        print('investments')
+        print(investments)
+        
+        print('xxx')
+        
         print(temp_list)
         
         IRR = round(np.irr(temp_list),5)
@@ -404,16 +425,17 @@ class Valuation(object):
 
 class Corporation(object):
     instances = []
-    def __init__(self, name, timeline, businesses=[], fixed_assets = 0,
-        liabilities = 0, human = False, estimate = False):
+    def __init__(self, name, timeline, businesses=[], current_assets=0, 
+        fixed_assets=0, liabilities=0, human = False, estimate = False):
         
         if estimate == False:
             self.__class__.instances.append(weakref.proxy(self))
         self.name = name
         self.type = "Corporation"
         self.businesses = businesses
-        self.fin = Finance(timeline, fixed_assets, liabilities)                 
+        self.fin = Finance(timeline, current_assets, fixed_assets, liabilities)                 
         self.human = human
+        
     def get_dividends(self):
         return self.fin.bs.df['Current_assets'].values[-1]
     
@@ -425,7 +447,7 @@ class Corporation(object):
         """
         Appends new business to the corporation.
         """
-        self.businesses.append(Business(name, capacity, timeline, fixed_assets = capex))
+        self.businesses.append(Business(name, capacity, timeline, investments=capex ))
         
     def buy_business(self, business):
         """
@@ -438,11 +460,12 @@ class Events(object):
         print('xxx')
         
     def create_business(self, corporation, macro, macro_results, timeline, time_step_opt): 
-            # add businesses
+        # add businesses
         name = 'Business_' + str(len(Business.instances))
         capacity  = 100
         
         estimate = Business('Estimate', 100, timeline, investments = macro_results['CAPEX'] * capacity, estimate = True)
+        
         value = Valuation()
         DCF_EV = value.DCF_EV(estimate, macro, timeline, timeline, 0.1/12)
         PE_EV = value.PE_EV(estimate, macro, 10, timeline)
@@ -468,7 +491,8 @@ class Events(object):
 
 class RandomPopups(object):
     def __init__(self):
-        self.capacity_rand = random.random()
+        #self.capacity_rand = random.random()
+        self.capacity_rand = random.rand()
         # xxx
 
 def test_functionA():
@@ -487,18 +511,56 @@ def test_functionA():
     print('xxx')
 
     macro = Macro(10)
+    events = Events()
     sim = GlobalSim(timeline, macro, events, time_step_opt = 'month')
-
+    
     sim.prog_time()
     sim.prog_time()
     sim.prog_time()
     sim.prog_time()
 
     print(project1.fin.bs.df)
+    print(corp1.fin.bs.df)
+    print(corp1.fin.pl.df)
+
+def test_functionB():
+
+    timeline = datetime.datetime(2019,1,1)
+    #project = Business('Business', 100, timeline, fixed_assets = 209000)
+    #project1 = Business('Business_1', 200, timeline)
+
+    
+    corp1 = Corporation('Double_Corp', timeline, [],
+        fixed_assets = 2000000, human = True)
+    print('xxx')
+
+    macro = Macro(10)
+    events = Events()
+    sim = GlobalSim(timeline, macro, events, time_step_opt = 'month')
+    
+    sim.prog_time()
+    sim.prog_time()
+    sim.prog_time()
+    sim.prog_time()
+    
+    for ii in Business.instances:
+        print(ii.name)
+        print(ii.fin.bs.df)
+        print(ii.fin.pl.df)
+        print(ii.fin.se.df)
+        print(ii.fin.cf.df)
+    
+    print(corp1.fin.bs.df)
+    print(corp1.fin.pl.df)
+    print(corp1.fin.se.df)
+    print(corp1.fin.cf.df)
+
+
 
 if __name__ == '__main__':
     print('main')
-    test_functionA()
+    #test_functionA()
+    test_functionB()
     
     
 
