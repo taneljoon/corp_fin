@@ -5,6 +5,10 @@
 # notes
 
 # corp fin is kinda crappy - equity rasing or starting subsidiaries doesnt work
+
+# valuation
+# - PE_EV from one year of profit not month x 12
+# - same for terminal value in IRR and DCF case
 """
 
 # import libraries
@@ -27,19 +31,23 @@ import folium
 class Macro(object):
     def __init__(self, init_price):
         self.price = init_price
-        self.cost = init_price * 0.8
+        self.cost_var = init_price * 0.8
+        self.cost_fixed = init_price * 10
         self.capex = init_price * 365
-        titles = ['Datetime', 'Price', 'Cost', 'CAPEX']
+        titles = ['Datetime', 'Price', 'Cost_var', 'Cost_fixed', 'CAPEX']
         self.df = pd.DataFrame(columns = titles)
-
+        
     def calc(self, timeline, delta, rate = 0):
         self.price = self.price * (1 + rate/(365.25 / delta.days))
-        self.cost = self.cost * (1 + rate/(365.25 / delta.days))
+        self.cost_var = self.cost_var * (1 + rate/(365.25 / delta.days))
+        self.cost_fixed = self.cost_fixed * (1 + rate/(365.25 / delta.days))
         self.capex = self.capex * (1 + rate/(365.25 / delta.days))
         temp = {}
         temp['Datetime'] = timeline
         temp['Price'] = self.price
-        temp['Cost'] = self.cost
+        temp['Cost_var'] = self.cost_var
+        temp['Cost_fixed'] = self.cost_fixed
+        
         temp['CAPEX'] = self.capex
         self.df = self.df.append(temp, ignore_index = True)
         return temp
@@ -268,7 +276,8 @@ class GlobalSim(Simulation):
     def calc(self, business, timeline, delta, macro_results):
         op_results = business.op.calc(timeline, delta, business)
         revenue = op_results['Units'] * macro_results['Price']
-        cost = op_results['Units'] * macro_results['Cost']
+        cost = (op_results['Units'] * macro_results['Cost_var'] 
+            - round(business.capacity * macro_results['Cost_fixed'] * delta.days / 365.25,0))
         
         dividends = business.get_dividends()
         investments = business.get_business_investments()
@@ -293,7 +302,7 @@ class GlobalSim(Simulation):
         corporation.fin.calc(timeline, revenue, -cost, dividends, -investments)
 
 class LocalSim(Simulation):        
-    def single_calc(self, entity, timeline, macro, years = 5):
+    def single_calc(self, entity, timeline, macro, years=5, price_increase_rate=0):
         """
         Calculate financial projection.
         """
@@ -302,12 +311,13 @@ class LocalSim(Simulation):
         while timeline < end_period:
             delta = self.time_step_datetime(timeline)
             timeline = timeline + delta
-            macro_results = macro.calc(timeline, delta)
+            macro_results = macro.calc(timeline, delta, price_increase_rate)
             
             investments = 0
             op_results = entity.op.calc(timeline, delta, entity)
             revenue = op_results['Units'] * macro_results['Price']
-            cost = op_results['Units'] * macro_results['Cost']
+            cost = (op_results['Units'] * macro_results['Cost_var'] 
+                - round(entity.capacity * macro_results['Cost_fixed'] * delta.days / 365.25,0))
             
             if entity.type == 'Business':
                 dividends = entity.get_dividends()
@@ -326,34 +336,44 @@ class Valuation(object):
     def __init__(self):
         print('')
         
-    def DCF_EV(self, business, macro, current_timeline, takeover_date, discount_rate):
+    def DCF_EV(self, business, macro, current_timeline, takeover_date, 
+        acquisition_fee, discount_rate, terminal_discount_rate, price_increase_rate):
+        
         """
         Copy the business and call fin-projection.
         Using DCF get NPV of dividends and net cash flow.
+        Contains acquisition fee.
         """
         business_copy = copy.deepcopy(business)
         macro_copy = copy.deepcopy(macro)
         
         local_sim = LocalSim()
-        local_sim.single_calc(business_copy, current_timeline, macro_copy)
+        local_sim.single_calc(business_copy, current_timeline, macro_copy, 
+            price_increase_rate=price_increase_rate)
         # take away already previous periods since we are at current time
         business_copy.fin.cf.df = business_copy.fin.cf.df[business_copy.fin.cf.df['Datetime']>takeover_date]
                 
         net_cf = business_copy.fin.cf.df['Net_CF'].values
         dividends = business_copy.fin.cf.df['Dividends'].values
-        
+        FCF = -dividends  + net_cf
         FCFt = -dividends[-1] + net_cf[-1]
-        terminal_value = max(0, FCFt / discount_rate)
-        net_cf[-1] = net_cf[-1] + terminal_value
+        time_step = business_copy.fin.bs.df['Datetime'].values
+        time_step_days = float(time_step[-1] - time_step[-2])/1e9/(60*60*24)
         
-        EV = round(np.npv(discount_rate, net_cf) - np.npv(discount_rate, dividends),0)
+        terminal_value = max(0, FCFt / terminal_discount_rate)
+        FCF[-1] = FCF[-1] + terminal_value
         
+        
+        EV = round(np.npv(discount_rate, FCF), 0)
+        EV = EV - acquisition_fee
         return EV
     
-    def PE_EV(self, business, macro, multiplier, current_timeline):
+    def PE_EV(self, business, macro, current_timeline, acquisition_fee, multiplier, 
+        price_increase_rate):
         """
         Calculate EV based on last profit.
-        Datetime difference gives answer in nanoseconds, therefore convert to dayss.
+        Datetime difference gives answer in nanoseconds, therefore convert to days.
+        Does not contain acquisition fee.
         """
         try:
             profit = business.fin.pl.df['Profit'].values[-1]
@@ -366,23 +386,31 @@ class Valuation(object):
             business_copy = copy.deepcopy(business)
             macro_copy = copy.deepcopy(macro)
             
-            local_sim.single_calc(business_copy, current_timeline, macro_copy, years = 1)
+            local_sim.single_calc(business_copy, current_timeline, macro_copy, 
+                years = 1, price_increase_rate=price_increase_rate)
             
-            profit = business_copy.fin.pl.df['Profit'].values[-1]
+            profit = business_copy.fin.pl.df['Profit'].values[0]
+            
             time_step = business_copy.fin.bs.df['Datetime'].values
             time_step_days = float(time_step[-1] - time_step[-2])/1e9/(60*60*24)
+            
             EV = profit * multiplier * 365.25/time_step_days
+        
+        EV = EV - acquisition_fee
         
         return EV
         
     def IRR_business(self, business, macro, current_timeline, takeover_date,
-        investment, discount_rate, time_step_opt):
-        
+        acquisition_fee, terminal_discount_rate, time_step_opt, price_increase_rate):
+        """
+        IRR based on Investments and Dividends and one time acquisition_fee.
+        """
         business_copy = copy.deepcopy(business)
         macro_copy = copy.deepcopy(macro)
         
         local_sim = LocalSim()
-        local_sim.single_calc(business_copy, current_timeline, macro_copy)
+        local_sim.single_calc(business_copy, current_timeline, macro_copy, 
+            price_increase_rate=price_increase_rate)
         # take away already previous periods since we are at current time
         business_copy.fin.cf.df = business_copy.fin.cf.df[business_copy.fin.cf.df['Datetime']>takeover_date]
                 
@@ -392,41 +420,41 @@ class Valuation(object):
         investments = business_copy.fin.cf.df['Investments'].values
         
         FCFt = -dividends[-1] + net_cf[-1]
-        terminal_value = max(0, FCFt / discount_rate)
+        terminal_value = max(0, FCFt / terminal_discount_rate)
         #net_cf[-1] = net_cf[-1] + terminal_value
         
         temp_list = investments - dividends
         temp_list[-1] = temp_list[-1] + terminal_value 
-        
-        
-        print(business_copy.fin.bs.df)
-        print(business_copy.fin.se.df)
-        
-        print('xxx')
-        print('dividends')
-        print(dividends)
-        
-        print('investments')
-        print(investments)
-        
-        print('xxx')
-        
-        print(temp_list)
+        temp_list[0] = temp_list[0] - acquisition_fee
         
         IRR = round(np.irr(temp_list),5)
         if time_step_opt == 'month':
-            IRR_yearly = IRR *12
+            IRR_yearly = IRR * 12
         elif time_step_opt == 'day':
             IRR_yearly = IRR * 365
         else:
             IRR_yearly = IRR
 
         return round(IRR_yearly,5)
+        
+    def valuation_total(self, business, macro, current_timeline, takeover_date, acquisition_fee,
+            time_step_opt, discount_rate=0.1, terminal_discount_rate=0.1, 
+            multiplier=10, price_increase_rate=0):
+        
+        DCF_EV_value = self.DCF_EV(business, macro, current_timeline, takeover_date, 
+            acquisition_fee, discount_rate,terminal_discount_rate, price_increase_rate)
+        PE_EV_value = self.PE_EV(business, macro, current_timeline, acquisition_fee, 
+            multiplier, price_increase_rate)
+        IRR_value = self.IRR_business(business, macro, current_timeline, takeover_date, 
+            acquisition_fee, terminal_discount_rate, time_step_opt, price_increase_rate)
+            
+        return (DCF_EV_value, PE_EV_value, IRR_value)
 
 class Corporation(object):
     instances = []
     def __init__(self, name, timeline, businesses=[], current_assets=0, 
-        fixed_assets=0, liabilities=0, human = False, estimate = False):
+        fixed_assets=0, liabilities=0, human = False, estimate = False, 
+        return_expectation = 0.1, price_increase_rate = 0.03):
         
         if estimate == False:
             self.__class__.instances.append(weakref.proxy(self))
@@ -435,6 +463,9 @@ class Corporation(object):
         self.businesses = businesses
         self.fin = Finance(timeline, current_assets, fixed_assets, liabilities)                 
         self.human = human
+        
+        self.return_expectation = return_expectation
+        self.price_increase_rate = price_increase_rate
         
     def get_dividends(self):
         return self.fin.bs.df['Current_assets'].values[-1]
@@ -447,7 +478,7 @@ class Corporation(object):
         """
         Appends new business to the corporation.
         """
-        self.businesses.append(Business(name, capacity, timeline, investments=capex ))
+        self.businesses.append(Business(name, capacity, timeline, investments=capex))
         
     def buy_business(self, business):
         """
@@ -464,19 +495,22 @@ class Events(object):
         name = 'Business_' + str(len(Business.instances))
         capacity  = 100
         
-        estimate = Business('Estimate', 100, timeline, investments = macro_results['CAPEX'] * capacity, estimate = True)
+        estimate = Business('Estimate', 100, timeline, 
+            investments = macro_results['CAPEX'] * capacity, estimate = True)
         
         value = Valuation()
-        DCF_EV = value.DCF_EV(estimate, macro, timeline, timeline, 0.1/12)
-        PE_EV = value.PE_EV(estimate, macro, 10, timeline)
-        IRR_yearly = value.IRR_business(estimate, macro, timeline, timeline, macro_results['CAPEX'] * capacity, 0.1/12, time_step_opt)
+        temp_values = value.valuation_total(estimate, macro, timeline, timeline,
+            macro_results['CAPEX'] * capacity, time_step_opt, 
+            corporation.return_expectation, 0.1/12, 1/corporation.return_expectation, 
+            corporation.price_increase_rate)
+
         del estimate        
        
         if corporation.human == True:
             print('Possible to invest in business named ' + name)
             print('Investment needed is :' + str(macro_results['CAPEX'] * capacity))
-            print('EV of estimated business is :'+ str((DCF_EV+ PE_EV)/2))
-            print('IRR is :' + str(IRR_yearly))
+            print('EV of estimated business is :'+ str(round((temp_values[0]+ temp_values[1])/2,0)))
+            print('IRR is :' + str(temp_values[2]))
             answer = (input('Start business [y/n]: ').lower() == 'y')
         else:
             answer = False
@@ -484,10 +518,10 @@ class Events(object):
         investments = 0
         if answer == True:
             print(corporation.name  + ' is now the owner of ' + name + '!')
-            corporation.append_business(name, capacity, timeline, macro_results['CAPEX'] * capacity)
+            corporation.append_business(name, capacity, timeline, 
+                macro_results['CAPEX'] * capacity)
             investments = investments + macro_results['CAPEX'] * capacity
         return investments       
-
 
 class RandomPopups(object):
     def __init__(self):
@@ -520,47 +554,41 @@ def test_functionA():
     sim.prog_time()
 
     print(project1.fin.bs.df)
+    print(project1.fin.pl.df)
     print(corp1.fin.bs.df)
     print(corp1.fin.pl.df)
 
 def test_functionB():
 
     timeline = datetime.datetime(2019,1,1)
-    #project = Business('Business', 100, timeline, fixed_assets = 209000)
-    #project1 = Business('Business_1', 200, timeline)
-
     
-    corp1 = Corporation('Double_Corp', timeline, [],
-        fixed_assets = 2000000, human = True)
-    print('xxx')
-
+    project1 = Business('Business_1', 100, timeline)
+    project2 = Business('Business_2', 200, timeline, investments=200000)
+    
     macro = Macro(10)
     events = Events()
     sim = GlobalSim(timeline, macro, events, time_step_opt = 'month')
+    value = Valuation()
     
     sim.prog_time()
     sim.prog_time()
     sim.prog_time()
     sim.prog_time()
+    temp_business = Business('Business_temp', 100, timeline, investments=0, estimate = True)
     
-    for ii in Business.instances:
-        print(ii.name)
-        print(ii.fin.bs.df)
-        print(ii.fin.pl.df)
-        print(ii.fin.se.df)
-        print(ii.fin.cf.df)
-    
-    print(corp1.fin.bs.df)
-    print(corp1.fin.pl.df)
-    print(corp1.fin.se.df)
-    print(corp1.fin.cf.df)
+    print('before valuation')
+    temp = value.valuation_total(temp_business, macro, sim.timeline, sim.timeline, 
+        586117.0, sim.time_step_opt, 0.125/12, 0.125/12, 8)
+    print('xxx')
+    print(temp)
 
+ 
 
-
+   
 if __name__ == '__main__':
     print('main')
-    #test_functionA()
-    test_functionB()
+    test_functionA()
+    #test_functionB()
     
     
 
