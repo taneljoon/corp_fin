@@ -74,6 +74,9 @@ X[:,3] = labelencoder_X.fit_transform(X[:,3])
 # we will use dummy encoding - 0 or 1
 onehotencoder = OneHotEncoder(categorical_features = [3])
 X = onehotencoder.fit_transform(X).toarray()
+
+# Avoiding the dummy variable trap
+X = X[:,1:]
 """
 
 
