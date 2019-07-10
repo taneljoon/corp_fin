@@ -33,9 +33,6 @@ print(df_capacity.head())
 df_total['Year'] = df_total.index.year
 
 df_capacity = df_capacity.set_index('Production Type')
-#print(df_capacity)
-#print(df_capacity['2015 [MW]']['Wind Onshore'])
-
 
 print(df_total.columns)
 #sys.exit()
@@ -72,48 +69,74 @@ df_total = df_total[(time_lim_start<=df_total.index) & (df_total.index<= time_li
 print(df_total.isnull().values.any())
 
 # if solar hour is needed
-# df_total['Hour'] = df_total.index.hour
+#df_total['Hour'] = df_total.index.hour
 df_total['Month'] = df_total.index.month    
 
 # __________________________________________________________________
 # read wind data
-file_wind = 'DE_Berlin_100_150.txt'
-def import_wind(file_wind, folder):
-    df_wind = pd.read_csv(folder+ file_wind, skiprows = 25, sep = '\t', header = 0)
-    df_wind['Unnamed: 0'] = pd.to_datetime(df_wind['Unnamed: 0'], dayfirst=True)
-    df_wind = df_wind.set_index('Unnamed: 0')
 
-    df_wind[file_wind] = df_wind['[m/s]']
-    df_wind = df_wind.filter([file_wind])
+def import_wind_pv(file, folder):
+    df = pd.read_csv(folder+ file, skiprows = 33, sep = '\t', header = 0)
+    print(df.columns)
+    print(df.head())
+    df['Unnamed: 0'] = pd.to_datetime(df['Unnamed: 0'], dayfirst=True)
+    df = df.set_index('Unnamed: 0')
+
+    df[file + '_wind'] = df['[m/s]'].astype(float)
+    df[file + '_pv'] = df['[W/m²]'].astype(float)
     
-    return df_wind
+    df = df.filter([file + '_wind', file + '_pv'])
+    
+    return df
 
-df_wind_total = pd.DataFrame()
-df_wind = import_wind('DE_Berlin_100_150.txt', folder)
-df_wind_total = pd.concat([df_wind_total, df_wind], axis = 1, sort = False)
+df_data_total = pd.DataFrame()
+df = import_wind_pv('DE_Hamburg.txt', folder)
+df_data_total = pd.concat([df_data_total, df], axis = 1, sort = False)
 
-df_wind = import_wind('DE_Beifeld_100_150.txt', folder)
-df_wind_total = pd.concat([df_wind_total, df_wind], axis = 1, sort = False)
+df = import_wind_pv('DE_Berlin.txt', folder)
+df_data_total = pd.concat([df_data_total, df], axis = 1, sort = False)
 
-df_wind = import_wind('DE_NW_coast_wind_100_150.txt', folder)
-df_wind_total = pd.concat([df_wind_total, df_wind], axis = 1, sort = False)
+
+df = import_wind_pv('DE_Frankfurt.txt', folder)
+df_data_total = pd.concat([df_data_total, df], axis = 1, sort = False)
+
+
+df = import_wind_pv('DE_Hannover.txt', folder)
+df_data_total = pd.concat([df_data_total, df], axis = 1, sort = False)
+
+df = import_wind_pv('DE_Munchen.txt', folder)
+df_data_total = pd.concat([df_data_total, df], axis = 1, sort = False)
+
+print(df)
+print(df_data_total.head())
+
+# time lim wind
+df_data_total = df_data_total[(time_lim_start<=df_data_total.index) & (df_data_total.index<= time_lim_end)]
+
+# only wind now
+name_list = []
+for ii in df_data_total.columns:
+    if 'wind' in ii:
+        name_list.append(ii)
+
+print(name_list)
+df_data_total = df_data_total.filter(name_list)
+
+
+#sys.exit()
+#print(df_wind_total.head())
 
 
 #print(df_wind_total.head())
 
-# time lim wind
-df_wind_total = df_wind_total[(time_lim_start<=df_wind_total.index) & (df_wind_total.index<= time_lim_end)]
-
-
-print(df_wind_total.head())
-
 
 # for wind collect wind data and month
-df_total = pd.concat([df_total, df_wind_total], axis = 1, sort = False)
+df_total = pd.concat([df_total, df_data_total], axis = 1, sort = False)
 
 print(df_total.head())
 print(df_total.columns)
 
+#sys.exit()
 
 """
 # __________________________________________________________________
@@ -188,6 +211,8 @@ print(len(X[0]))
 print(len(X))
 print(X)
 
+input_dim_number = len(X[0])
+
 #sys.exit()
 """
 # __________________________________________________________________
@@ -225,7 +250,8 @@ X_train, X_test, y_train, y_test = train_test_split(xscale, yscale)
 # create model
 model = Sequential()
 #model.add(Dense(8, input_dim=23, kernel_initializer='normal', activation='relu'))
-model.add(Dense(15, input_dim=15, kernel_initializer='normal', activation='relu'))
+#model.add(Dense(15, input_dim=15, kernel_initializer='normal', activation='relu'))
+model.add(Dense(input_dim_number, input_dim=input_dim_number, kernel_initializer='normal', activation='relu'))
 #model.add(Dense(3, kernel_initializer='normal', activation='relu'))
 model.add(Dense(8, kernel_initializer='normal', activation='relu'))
 model.add(Dense(8, kernel_initializer='normal', activation='relu'))

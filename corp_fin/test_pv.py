@@ -59,8 +59,8 @@ time_lim_start = datetime.datetime(2015,1,1)
 time_lim_end = datetime.datetime(2018,9,30)
 
 # filter out unneeded columns
-#df_total = df_total.filter(['Solar  - Actual Aggregated [MW]','Solar Capacity'])
-df_total = df_total.filter(['Wind Onshore  - Actual Aggregated [MW]','Wind Onshore Capacity'])
+df_total = df_total.filter(['Solar  - Actual Aggregated [MW]','Solar Capacity'])
+#df_total = df_total.filter(['Wind Onshore  - Actual Aggregated [MW]','Wind Onshore Capacity'])
 
 # filter time
 df_total = df_total[(time_lim_start<=df_total.index) & (df_total.index<= time_lim_end)]
@@ -69,9 +69,12 @@ df_total = df_total[(time_lim_start<=df_total.index) & (df_total.index<= time_li
 print(df_total.isnull().values.any())
 
 # if solar hour is needed
-#df_total['Hour'] = df_total.index.hour
+df_total['Hour'] = df_total.index.hour
 df_total['Month'] = df_total.index.month    
 
+
+print(df_total.columns)
+#sys.exit()
 # __________________________________________________________________
 # read wind data
 
@@ -116,7 +119,8 @@ df_data_total = df_data_total[(time_lim_start<=df_data_total.index) & (df_data_t
 # only wind now
 name_list = []
 for ii in df_data_total.columns:
-    if 'wind' in ii:
+    #if 'wind' in ii:
+    if 'pv' in ii:
         name_list.append(ii)
 
 print(name_list)
@@ -198,7 +202,7 @@ print(X[1])
 
 X[:,-1] = labelencoder_X.fit_transform(X[:,-1])
 # we will use dummy encoding - 0 or 1
-onehotencoder = OneHotEncoder(categorical_features = [1])
+onehotencoder = OneHotEncoder(categorical_features = [2])
 X = onehotencoder.fit_transform(X).toarray()
 
 # Avoiding the dummy variable trap
@@ -211,10 +215,10 @@ print(len(X[0]))
 print(len(X))
 print(X)
 
-input_dim_number = len(X[0])
+
 
 #sys.exit()
-"""
+
 # __________________________________________________________________
 # categorize 2rd time - hour
 X[:,-1] = labelencoder_X.fit_transform(X[:,-1])
@@ -232,7 +236,9 @@ print(X[12])
 print(len(X[0]))
 print(len(X))
 print(X)
-"""
+
+# length of input in nn
+input_dim_number = len(X[0])
 
 # _____________________________________________________________________________
 Y = np.reshape(Y, (-1,1))
@@ -304,7 +310,7 @@ y_plot_con_5 = y_plot_nn - 2 * y_plot_nn_std
 # plotting
 fig, axs = plt.subplots(3,1,sharex=True)
 
-axs[0].plot(df_total.index, df_total['Wind Onshore  - Actual Aggregated [MW]'], color ='blue')
+axs[0].plot(df_total.index, df_total['Solar  - Actual Aggregated [MW]'], color ='blue')
 axs[0].plot(df_total.index, y_plot_nn, color = 'red')
 #axs[0].plot(df_total.index, y_plot_con_95, color = 'red',linestyle='-.')
 #axs[0].plot(df_total.index, y_plot_con_5, color = 'red',linestyle='-.')
@@ -313,12 +319,14 @@ axs[1].plot(df_total.index, df_total['Month'])
 #axs[2].plot(df_total.index, df_total['Hour'])
 
 #axs[3].plot(df_total.index, y_plot_nn_std)
-axs[2].plot(df_total.index, df_total['Wind Onshore Capacity'])
+#axs[2].plot(df_total.index, df_total['Wind Onshore Capacity'])
+axs[2].plot(df_total.index, df_total['Solar Capacity'])
 
 
 
 plt.show()
 sys.exit()
+"""
 # __________________________________________________________________
 # predict future
 
@@ -385,3 +393,4 @@ y_plot_nn2 = scaler_y.inverse_transform(y_plot_nn_scaled2)
 axs[0].plot(df_future.index, y_plot_nn2, color = 'green',linestyle='-.')
 plt.show()
 sys.exit()
+"""
