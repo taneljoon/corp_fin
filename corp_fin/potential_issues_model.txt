@@ -1,0 +1,9 @@
+# potential issues model
+
+NN training-test division
+- understand if we need the split to be as is
+
+Name UK vs GB
+- UK maybe used in some files, but change to GB since that is the zone in Entsoe
+- dealt with 15.07.2109
+

@@ -71,13 +71,28 @@ df_price = df_price.set_index('Start_time', drop=False)
 
 # _____________________________________________________________________________
 # replace - & n/e
-
+replace_dict = {'N/A':0,'n/e':0, '-':0, 'NaN':0}
 df_gen = df_gen.replace('-',0)
 df_gen = df_gen.replace('n/e',0)
+df_gen = df_gen.replace('N/A',0)
+
+#df_gen = df_gen.fillna(method ='ffill')
+#df_gen = df_gen.fillna(value=replace_dict)
+#df_gen = df_gen.fillna(method ='ffill')
+
+df_load = df_load.fillna(method ='ffill')
+df_price = df_price.fillna(method ='ffill')
+
+df_load = df_load.fillna(method ='bfill')
+df_price = df_price.fillna(method ='bfill')
+
 df_load = df_load.replace('-',0)
 df_load = df_load.replace('n/e',0)
+df_load = df_load.replace('N/A',0)
+
 df_price = df_price.replace('-',0)
 df_price = df_price.replace('n/e',0)
+df_price = df_price.replace('N/A',0)
 
 # _____________________________________________________________________________
 # make columns into floats - that are not datetime
@@ -106,9 +121,9 @@ df_price = df_price.resample('H').mean()
 
 # _____________________________________________________________________________
 # fillna
-df_price.fillna(0)
-df_gen.fillna(0)
-df_load.fillna(0)
+#df_price.fillna(0)
+#df_gen.fillna(0)
+#df_load.fillna(0)
 
 
 
@@ -131,7 +146,7 @@ print(df_load.shape)
 
 df_total = pd.concat([df_gen, df_load, df_price], axis = 1, sort = False)
 # forward fill
-df_total = df_total.fillna(method ='ffill')
+#df_total = df_total.fillna(method ='ffill')
 df_total.to_csv('df_total.csv')
 
 with open('df_total.obj', 'wb') as file:
